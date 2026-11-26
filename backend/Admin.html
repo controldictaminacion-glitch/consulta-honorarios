@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Administración de honorarios</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;color:#253142;background:#f5f6f9;font:16px/1.5 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:32px 20px}h1{color:#88183a}section{background:white;border:1px solid #ddd;border-radius:12px;padding:20px;margin:20px 0}label{display:block;font-weight:600;margin-top:12px}input,select,textarea,button{font:inherit;padding:10px;border:1px solid #bbc1cb;border-radius:6px}input,textarea{width:100%}textarea{min-height:260px;font:14px/1.5 monospace}button{background:#88183a;color:white;cursor:pointer;margin:12px 8px 0 0}button:disabled{opacity:.5;cursor:wait}a{color:#88183a}:focus-visible{outline:3px solid #bc955c;outline-offset:2px}.hint{color:#566273}pre{white-space:pre-wrap;overflow-wrap:anywhere}#status{white-space:pre-wrap}table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left;overflow-wrap:anywhere}.scroll{overflow:auto}#audit td{min-width:100px}
+  </style>
+</head>
+<body><main>
+  <h1>Administración de honorarios</h1>
+  <p>Los cambios se guardan en el servidor y quedan registrados en la bitácora privada.</p>
+  <p id="status" role="status" aria-live="polite">Verificando acceso…</p>
+  <section aria-label="Fuentes por ejercicio">
+    <h2>Fuentes por ejercicio</h2>
+    <label for="year">Ejercicio</label><select id="year"></select>
+    <label for="source">URL de Google Sheets, incluida la pestaña (gid)</label><input id="source" type="url" autocomplete="off">
+    <p class="hint">La configuración permanece privada. No pegues estos datos en el repositorio público.</p>
+    <button type="button" id="applyUrl" disabled>Aplicar URL al borrador</button>
+    <label for="newYear">Agregar ejercicio</label><input type="number" id="newYear" min="2020" max="2100" placeholder="2027">
+    <button type="button" id="addYear" disabled>Agregar al borrador</button>
+    <details><summary>Mapeo y reglas de consulta</summary>
+      <p>Requiere los encabezados, las 11 columnas y las reglas originales de selección de filas. No habilites una fuente sin conciliar folios e importes con la aplicación anterior.</p>
+      <label for="configuration">Configuración de fuentes</label><textarea id="configuration" spellcheck="false"></textarea>
+    </details>
+    <button type="button" id="validate" disabled>Validar ejercicio</button>
+    <button type="button" id="save" disabled>Guardar configuración</button>
+    <button type="button" id="reload">Volver a cargar</button>
+    <p class="hint">La validación comprueba ejercicio, encabezados y reglas declaradas. La conciliación requiere revisar los resultados contra el servicio original.</p>
+  </section>
+  <section><h2>Bitácora de cambios</h2><button type="button" id="loadAudit">Consultar bitácora</button><div class="scroll"><table><thead><tr><th>Fecha</th><th>Cuenta</th><th>Operación</th><th>Revisión</th><th>Estado</th><th>Huella anterior</th><th>Huella nueva</th></tr></thead><tbody id="audit"></tbody></table></div></section>
+</main><script>
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let revision = 0;
+  function status(message) { $('status').textContent = message; }
+  function busy(value) { ['applyUrl','addYear','validate','save','reload','loadAudit'].forEach(id => $(id).disabled = value); }
+  function call(name, ...args) {
+    return new Promise((resolve,reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(error => reject(new Error(error.message || 'No se pudo completar la operación.')))[name](...args));
+  }
+  function draft() { return JSON.parse($('configuration').value); }
+  function render(value) {
+    $('configuration').value = JSON.stringify(value,null,2);
+    $('year').replaceChildren(...value.years.map(source => { const option=document.createElement('option'); option.value=source.year; option.textContent=source.year + (source.enabled ? ' · habilitado' : ' · pendiente'); return option; }));
+    $('year').value = value.years.some(s => s.year === value.defaultYear) ? value.defaultYear : value.years[0].year;
+    showUrl();
+  }
+  function showUrl() { try { const source=draft().years.find(s => s.year === Number($('year').value)); $('source').value=source.sourceUrl || ''; } catch (_) { status('Revisa el formato de la configuración.'); } }
+  async function run(operation) { busy(true); try { await operation(); } catch(error) { status(error.message); } finally { busy(false); } }
+  async function reload() { const value=await call('adminGetConfig'); revision=value.revision; render(value); status('Configuración privada cargada. Revisión ' + revision + '.'); }
+  $('year').addEventListener('change',showUrl);
+  $('reload').addEventListener('click',() => run(reload));
+  $('applyUrl').addEventListener('click',() => run(async() => { const value=draft(), source=value.years.find(s=>s.year===Number($('year').value)); source.sourceUrl=$('source').value.trim(); source.validated=false; render(value); status('URL incorporada al borrador. Valida y guarda para aplicar.'); }));
+  $('addYear').addEventListener('click',() => run(async() => { const value=draft(),year=Number($('newYear').value); if(!Number.isInteger(year)||year<2020||year>2100||value.years.some(s=>s.year===year)) throw new Error('Introduce un ejercicio nuevo entre 2020 y 2100.'); value.years.push({year,enabled:false,validated:false}); render(value); $('year').value=year; showUrl(); status('Ejercicio agregado al borrador.'); }));
+  $('validate').addEventListener('click',() => run(async() => { const source=draft().years.find(s=>s.year===Number($('year').value)); const result=await call('adminValidateSource',source); status(result.message); }));
+  $('save').addEventListener('click',() => run(async() => { const result=await call('adminSaveConfig',draft(),revision); await reload(); status(result.message + ' Revisión ' + result.revision + '.'); }));
+  $('loadAudit').addEventListener('click',() => run(async() => { const rows=await call('adminGetAudit'); $('audit').replaceChildren(...rows.reverse().map(row=>{const tr=document.createElement('tr');row.forEach(value=>{const td=document.createElement('td');td.textContent=value;tr.append(td);});return tr;})); status('Bitácora privada cargada.'); }));
+  run(reload);
+</script></body></html>

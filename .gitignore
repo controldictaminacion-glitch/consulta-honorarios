@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env*
+!.env.example
+*.local.*
+.clasp.json
+credentials*.json
+private/
+coverage/
+test-results/
