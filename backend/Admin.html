@@ -40,10 +40,10 @@
     return new Promise((resolve,reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(error => reject(new Error(error.message || 'No se pudo completar la operación.')))[name](...args));
   }
   function draft() { return JSON.parse($('configuration').value); }
-  function render(value) {
+  function render(value, selectedYear = Number($('year').value)) {
     $('configuration').value = JSON.stringify(value,null,2);
     $('year').replaceChildren(...value.years.map(source => { const option=document.createElement('option'); option.value=source.year; option.textContent=source.year + (source.enabled ? ' · habilitado' : ' · pendiente'); return option; }));
-    $('year').value = value.years.some(s => s.year === value.defaultYear) ? value.defaultYear : value.years[0].year;
+    $('year').value = value.years.some(s => s.year === selectedYear) ? selectedYear : value.years.some(s => s.year === value.defaultYear) ? value.defaultYear : value.years[0].year;
     showUrl();
   }
   function showUrl() { try { const source=draft().years.find(s => s.year === Number($('year').value)); $('source').value=source.sourceUrl || ''; } catch (_) { status('Revisa el formato de la configuración.'); } }
@@ -51,8 +51,8 @@
   async function reload() { const value=await call('adminGetConfig'); revision=value.revision; render(value); status('Configuración privada cargada. Revisión ' + revision + '.'); }
   $('year').addEventListener('change',showUrl);
   $('reload').addEventListener('click',() => run(reload));
-  $('applyUrl').addEventListener('click',() => run(async() => { const value=draft(), source=value.years.find(s=>s.year===Number($('year').value)); source.sourceUrl=$('source').value.trim(); source.validated=false; render(value); status('URL incorporada al borrador. Valida y guarda para aplicar.'); }));
-  $('addYear').addEventListener('click',() => run(async() => { const value=draft(),year=Number($('newYear').value); if(!Number.isInteger(year)||year<2020||year>2100||value.years.some(s=>s.year===year)) throw new Error('Introduce un ejercicio nuevo entre 2020 y 2100.'); value.years.push({year,enabled:false,validated:false}); render(value); $('year').value=year; showUrl(); status('Ejercicio agregado al borrador.'); }));
+  $('applyUrl').addEventListener('click',() => run(async() => { const value=draft(), source=value.years.find(s=>s.year===Number($('year').value)); source.sourceUrl=$('source').value.trim(); source.validated=false; render(value,source.year); status('URL incorporada al borrador. Valida y guarda para aplicar.'); }));
+  $('addYear').addEventListener('click',() => run(async() => { const value=draft(),year=Number($('newYear').value); if(!Number.isInteger(year)||year<2020||year>2100||value.years.some(s=>s.year===year)) throw new Error('Introduce un ejercicio nuevo entre 2020 y 2100.'); value.years.push({year,enabled:false,validated:false}); render(value,year); status('Ejercicio agregado al borrador.'); }));
   $('validate').addEventListener('click',() => run(async() => { const source=draft().years.find(s=>s.year===Number($('year').value)); const result=await call('adminValidateSource',source); status(result.message); }));
   $('save').addEventListener('click',() => run(async() => { const result=await call('adminSaveConfig',draft(),revision); await reload(); status(result.message + ' Revisión ' + result.revision + '.'); }));
   $('loadAudit').addEventListener('click',() => run(async() => { const rows=await call('adminGetAudit'); $('audit').replaceChildren(...rows.reverse().map(row=>{const tr=document.createElement('tr');row.forEach(value=>{const td=document.createElement('td');td.textContent=value;tr.append(td);});return tr;})); status('Bitácora privada cargada.'); }));
