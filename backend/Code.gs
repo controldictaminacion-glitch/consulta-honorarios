@@ -1,5 +1,5 @@
 /**
- * Servicio nuevo de consulta. No reemplaza las reglas de obtenerDatos original.
+ * Servicio multiejercicio con serialización compatible con obtenerDatos original.
  * Configuración sensible: exclusivamente Propiedades del script.
  * Dos despliegues del mismo proyecto: lectura como propietario; admin como usuario.
  */
@@ -7,7 +7,8 @@ const CONFIG_KEY_ = 'HONORARIOS_CONFIG_JSON';
 const ALLOWED_TYPES_ = ['text', 'number', 'currency', 'date', 'link'];
 
 function doGet(e) {
-  const action = String((e && e.parameter && e.parameter.action) || 'years');
+  const parameters = e && e.parameter ? e.parameter : {};
+  const action = String(parameters.action || 'years');
   if (action === 'admin') {
     try {
       requireAdmin_();
@@ -23,10 +24,10 @@ function doGet(e) {
       return json_({ years: config.years.map(s => ({ year: s.year, enabled: Boolean(s.enabled && s.validated) })), defaultYear: config.defaultYear });
     }
     if (action !== 'data') fail_('BAD_REQUEST');
-    const year = Number(e.parameter.year);
+    const year = Number(parameters.year);
     const source = config.years.find(s => s.year === year && s.enabled && s.validated);
     if (!source) fail_('SOURCE_UNAVAILABLE');
-    return json_(data_(source, config.revision, e.parameter.refresh === '1'));
+    return json_(data_(source, config.revision, parameters.refresh === '1'));
   } catch (error) {
     return json_({ error: { code: publicCode_(error), message: 'La fuente no está disponible o requiere validación administrativa.' } });
   }
@@ -49,7 +50,7 @@ function adminValidateSource(source) {
   try {
     const clean = normalizeSource_(source);
     const checked = readData_(clean);
-    return { ok: true, rows: checked.rows.length, message: 'Ejercicio, encabezados, tipos y reglas declaradas válidos en ' + checked.rows.length + ' filas. Falta guardar para aplicar.' };
+    return { ok: true, rows: checked.rows.length, warnings: checked.warnings, message: 'Ejercicio, encabezados y serialización compatibles en ' + checked.rows.length + ' filas. Falta guardar para aplicar.' };
   } catch (_) {
     throw new Error('No se pudo validar: revisa permisos, ejercicio, encabezados, tipos y reglas de selección.');
   }
@@ -182,6 +183,20 @@ function validateSource_(source) {
 function normalize_(value) { return String(value == null ? '' : value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase(); }
 function safeLink_(value) { return /^https?:\/\//i.test(String(value || '')) ? String(value) : null; }
 
+/** Conserva las primitivas y los respaldos visibles del serializador original. */
+function serializeCell_(value, display, type, timeZone) {
+  if (value === '' || value === null || typeof value === 'undefined') return null;
+  if (type === 'date') {
+    if (value instanceof Date && Number.isFinite(value.getTime())) return Utilities.formatDate(value, timeZone, 'yyyy-MM-dd');
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Utilities.formatDate(new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000), 'UTC', 'yyyy-MM-dd');
+    }
+    return String(display || value);
+  }
+  if ((type === 'number' || type === 'currency') && typeof value === 'number' && Number.isFinite(value)) return value;
+  return String(display !== '' ? display : value);
+}
+
 function data_(source, revision, refresh) {
   const cache = CacheService.getScriptCache();
   const key = 'honorarios-' + revision + '-' + source.year;
@@ -196,20 +211,22 @@ function data_(source, revision, refresh) {
 function readData_(source) {
   const checked = validateSource_(source); // Nunca confiar solo en el indicador persistido.
   const sheet = checked.sheet;
+  const timeZone = checked.book.getSpreadsheetTimeZone() || 'America/Mexico_City';
   const last = Math.min(sheet.getLastRow(), source.rowSelection.lastRow || sheet.getLastRow());
   const count = Math.max(0, last - source.startRow + 1);
   if (count > 20000 || count * checked.width > 500000) fail_('SOURCE_UNAVAILABLE');
   const rows = [];
+  const numericTextCounts = new Map();
   if (count) {
     const range = sheet.getRange(source.startRow, 1, count, checked.width);
     const values = range.getValues(), displays = range.getDisplayValues(), rich = range.getRichTextValues();
     const excluded = new Set(source.rowSelection.excludeRows);
     const labels = new Set(source.rowSelection.excludeExact.map(normalize_));
     values.forEach((row, index) => {
-      const label = normalize_(row[source.rowSelection.requiredColumn - 1]);
-      if (!label || excluded.has(source.startRow + index) || labels.has(label)) return;
+      const label = String(displays[index][source.rowSelection.requiredColumn - 1] || '').trim();
+      if (!label || excluded.has(source.startRow + index) || labels.has(normalize_(label))) return;
       const result = { values: [], display: [] };
-      source.columns.forEach(c => {
+      source.columns.forEach((c, columnIndex) => {
         if (c.column === null) {
           result.values.push(null);
           result.display.push('');
@@ -217,19 +234,18 @@ function readData_(source) {
         }
         const position = c.column - 1;
         const value = row[position];
-        let output = value === '' || value === null ? null : value;
-        if (c.type === 'currency' || c.type === 'number') {
-          if (output !== null && (typeof output !== 'number' || !Number.isFinite(output))) fail_('SCHEMA_MISMATCH');
-          if (c.type === 'number' && output !== null && !Number.isSafeInteger(output)) fail_('SCHEMA_MISMATCH');
-        } else if (c.type === 'date') {
-          if (output !== null && (!(output instanceof Date) || !Number.isFinite(output.getTime()))) fail_('SCHEMA_MISMATCH');
-          output = output === null ? null : Utilities.formatDate(output, 'America/Mexico_City', 'yyyy-MM-dd');
-        } else if (c.type === 'link') {
+        const visible = displays[index][position];
+        let output = serializeCell_(value, visible, c.type, timeZone);
+        if (c.type === 'link') {
           const richCell = rich[index][position];
-          output = safeLink_(richCell && richCell.getLinkUrl()) || safeLink_(value);
-        } else output = output === null ? null : String(output);
+          output = safeLink_(richCell && richCell.getLinkUrl()) || output;
+        }
+        if ((c.type === 'number' || c.type === 'currency') && typeof output === 'string') {
+          numericTextCounts.set(columnIndex, (numericTextCounts.get(columnIndex) || 0) + 1);
+        }
         result.values.push(output);
-        result.display.push(String(displays[index][position] || ''));
+        result.display.push(c.type === 'link' ? String(output || '') :
+          c.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(String(output)) ? String(output).split('-').reverse().join('/') : String(visible || ''));
       });
       rows.push(result);
     });
@@ -238,8 +254,9 @@ function readData_(source) {
     year: source.year, title: 'Consulta de honorarios ' + source.year,
     columns: source.columns.map(c => ({ title: c.title, type: c.type })), rows: rows,
     unavailableColumns: source.columns.map((c, index) => c.column === null ? index : -1).filter(index => index !== -1),
+    warnings: Array.from(numericTextCounts, entry => ({ code: 'NUMERIC_TEXT', columnIndex: entry[0], count: entry[1], message: 'Se conservan valores numéricos almacenados como texto; las sumas incluyen únicamente números nativos.' })),
     loadedAt: new Date().toISOString(), sourceUpdatedAt: DriveApp.getFileById(source.spreadsheetId).getLastUpdated().toISOString(),
-    timeZone: 'America/Mexico_City'
+    timeZone: timeZone
   };
   return result;
 }

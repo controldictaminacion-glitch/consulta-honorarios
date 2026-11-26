@@ -145,7 +145,7 @@ async function loadData(force = false) {
     if (request !== state.request) return;
     state.data = data; populateChoices(data);
     $('updated').textContent = `Fuente actualizada: ${displayDate(data.sourceUpdatedAt, data.timeZone)} · Consulta: ${displayDate(data.loadedAt, data.timeZone)}`;
-    $('sourceState').textContent = `${state.config.demo ? 'Demostración' : 'Consulta de la fuente configurada'} · Ejercicio ${year}${data.unavailableColumns?.length ? ' · Algunos campos no están disponibles' : ''}`;
+    $('sourceState').textContent = `${state.config.demo ? 'Demostración' : 'Consulta de la fuente configurada'} · Ejercicio ${year}${data.unavailableColumns?.length ? ' · Algunos campos no están disponibles' : ''}${data.warnings?.length ? ' · Hay valores de texto excluidos de las sumas' : ''}`;
     $('sourceFooter').textContent = `Fuente: ${data.title || 'Servicio institucional'} · ${year}`;
     document.title = `Consulta de Honorarios ${year}`;
     applyFilters(); await loadComparison(force);
@@ -220,7 +220,7 @@ async function download(format) {
   try {
     const context = {year: state.data.year, title: state.data.title, columns: state.data.columns, rows, loadedAt: state.data.loadedAt, sourceUpdatedAt: state.data.sourceUpdatedAt, timeZone: state.data.timeZone, query: all ? '' : filterDescription(), matchMode: $('matchMode').value, scope: all ? 'Tabla completa' : 'Resultados actuales'};
     const blob = format === 'xlsx' ? await createExcel(context) : await createPdf(context);
-    const name = `Honorarios_${state.data.year}_${all ? 'Completo' : 'Consulta'}_${new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '_')}.${format}`;
+    const name = `Honorarios_${context.year}_${all ? 'Completo' : 'Consulta'}_${new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '_')}.${format}`;
     downloadBlob(blob, name);
     const old = $('downloadFallback'); if (old) { URL.revokeObjectURL(old.href); old.remove(); }
     const link = document.createElement('a'); link.id = 'downloadFallback'; link.href = URL.createObjectURL(blob); link.download = name; link.textContent = 'Descargar archivo preparado'; link.className = 'btn';

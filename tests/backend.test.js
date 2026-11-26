@@ -16,7 +16,10 @@ function runtime({ active = '', effective = '', properties = {}, book, cache } =
     SpreadsheetApp: { openById: () => book },
     CacheService: { getScriptCache: () => cache || ({get:()=>null,put(){}}) },
     DriveApp: { getFileById: () => ({getLastUpdated:()=>new Date('2026-01-02T12:00:00Z')}) },
-    Utilities: { formatDate: date => date.toISOString().slice(0,10) }
+    Utilities: { formatDate: (date,timeZone) => {
+      const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date).map(part=>[part.type,part.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    } }
   });
   vm.runInContext(backend, context);
   return {context,state};
@@ -56,6 +59,11 @@ test('lectura pública deshabilitada por defecto y error sanitizado',()=>{
   });
 });
 
+test('doGet sin evento usa listado de ejercicios de forma segura',()=>{
+  const {context}=runtime({properties:{PUBLIC_READ_ENABLED:'true'}});
+  assert.deepEqual(JSON.parse(context.doGet().text),{years:[{year:2025,enabled:false},{year:2026,enabled:false}],defaultYear:2026});
+});
+
 test('una fuente no validada nunca se entrega aunque esté habilitada',()=>{
   const {context}=runtime({properties:{PUBLIC_READ_ENABLED:'true',HONORARIOS_CONFIG_JSON:JSON.stringify({revision:1,defaultYear:2026,years:[{year:2026,enabled:true,validated:false}]})}});
   assert.equal(JSON.parse(context.doGet({parameter:{action:'data',year:'2026'}}).text).error.code,'SOURCE_UNAVAILABLE');
@@ -70,8 +78,9 @@ test('solo acepta URLs de Google Sheets sin hosts o esquemas alternativos',()=>{
   assert.equal(parsed.sheetId,42);
 });
 
-function mockBook(source, rows) {
-  const headers=source.columns.map(c=>c.sourceHeader);
+function mockBook(source, rows, {displays,richLinks={},timeZone='UTC'} = {}) {
+  const headers=Array(Math.max(...source.columns.map(c=>c.column||0))).fill('');
+  source.columns.forEach(c=>{if(c.column!==null)headers[c.column-1]=c.sourceHeader;});
   const sheet={
     getSheetId:()=>0,getLastRow:()=>rows.length+1,
     getRange:(row,column,count,width)=> {
@@ -79,12 +88,12 @@ function mockBook(source, rows) {
       if(row===1) return {getDisplayValues:()=>[headers]};
       return {
         getValues:()=>rows,
-        getDisplayValues:()=>rows.map(row=>row.map(value=>value===null?'':String(value))),
-        getRichTextValues:()=>rows.map(row=>row.map(()=>({getLinkUrl:()=>null})))
+        getDisplayValues:()=>displays||rows.map(row=>row.map(value=>value===null?'':String(value))),
+        getRichTextValues:()=>rows.map((row,i)=>row.map((_,j)=>({getLinkUrl:()=>richLinks[`${i}:${j}`]||null})))
       };
     }
   };
-  return {getName:()=> 'Fuente de prueba 2026',getSheets:()=>[sheet]};
+  return {getName:()=> 'Fuente de prueba 2026',getSheets:()=>[sheet],getSpreadsheetTimeZone:()=>timeZone};
 }
 
 test('extrae cifras nativas, conserva folios y excluye totales con regla explícita',()=>{
@@ -103,12 +112,14 @@ test('extrae cifras nativas, conserva folios y excluye totales con regla explíc
   assert.equal(JSON.stringify(data).includes(source.spreadsheetId),false);
 });
 
-test('no convierte importes en texto ni folios fraccionarios silenciosamente',()=>{
+test('conserva texto numérico y folios nativos sin convertir ni rechazar filas',()=>{
   const source=configuredSource();
-  for(const [index,value] of [[6,'$1,234.56'],[5,2.5],[10,Infinity]]) {
+  for(const [index,value,expected] of [[6,'$1,234.56','$1,234.56'],[5,2.5,2.5],[10,Infinity,'Infinity']]) {
     const row=['ID','Órgano','Local',null,null,3,100,'OF','Recibido',null,50];row[index]=value;
     const {context}=runtime({book:mockBook(source,[row])});
-    assert.throws(()=>context.data_(source,1),/SCHEMA_MISMATCH/);
+    const result=context.data_(source,1);
+    assert.equal(result.rows[0].values[index],expected);
+    assert.equal(result.warnings.some(w=>w.columnIndex===index),typeof expected==='string');
   }
 });
 
@@ -163,4 +174,75 @@ test('bitácora requiere sus siete encabezados antes de aceptar cambios',()=>{
   const book={getSheetByName:()=>sheet};
   const {context}=runtime({book,properties:{AUDIT_SPREADSHEET_ID:'AUDIT_TEST_ONLY'}});
   assert.throws(()=>context.auditSheet_(),/AUDIT_REQUIRED/);
+});
+
+test('serializador conserva respaldos visibles y fechas como el original',()=>{
+  const {context}=runtime();
+  const cases=[
+    [null,'No inventar','text','UTC',null],
+    [undefined,'No inventar','text','UTC',null],
+    ['', 'No inventar','text','UTC',null],
+    [7,'0007','text','UTC','0007'],
+    [25,'OF-00025','text','UTC','OF-00025'],
+    [true,'Sí','text','UTC','Sí'],
+    [45000.99,'15/03/2023','date','America/Mexico_City','2023-03-15'],
+    [0.99,'30/12/1899','date','Asia/Tokyo','1899-12-30'],
+    [-1.2,'28/12/1899','date','UTC','1899-12-28'],
+    [new Date('2026-01-02T02:30:00Z'),'02/01/2026','date','America/Mexico_City','2026-01-01'],
+    [new Date('2026-01-02T02:30:00Z'),'02/01/2026','date','Asia/Tokyo','2026-01-02'],
+    [new Date('invalid'),'Fecha pendiente','date','UTC','Fecha pendiente'],
+    ['Por definir','PENDIENTE','date','UTC','PENDIENTE'],
+    [1234.56,'$1,234.56','currency','UTC',1234.56],
+    ['1234.56','$1,234.56','currency','UTC','$1,234.56'],
+    [12,'00012','number','UTC',12],
+    ['12','00012','number','UTC','00012']
+  ];
+  for(const [value,visible,type,zone,expected] of cases) assert.equal(context.serializeCell_(value,visible,type,zone),expected);
+});
+
+test('regla original2026 usa B visible e incluye totales cuando no hay exclusiones',()=>{
+  const source=configuredSource();
+  source.rowSelection={requiredColumn:2,excludeExact:[],excludeRows:[]};
+  const base=['ID','Órgano','Local',null,null,3,100,'OF','Recibido',null,50];
+  const rows=[base.slice(),base.slice(),base.slice(),base.slice()];
+  rows[0][1]='Oculto por formato';rows[1][1]=0;rows[2][1]='TOTAL';rows[3][1]='   ';
+  const displays=rows.map(row=>row.map(value=>value===null?'':String(value)));
+  displays[0][1]='';displays[1][1]='Órgano visible';
+  const {context}=runtime({book:mockBook(source,rows,{displays})});
+  const result=context.readData_(source);
+  assert.equal(result.rows.length,2);
+  assert.equal(result.rows[0].values[1],'Órgano visible');
+  assert.equal(result.rows[1].values[1],'TOTAL');
+});
+
+test('mapeo2026 conserva IDs/oficios, zona del libro, fechas y enlaces de procedencia',()=>{
+  const source=configuredSource();
+  const sourceColumns=[1,2,3,5,6,7,8,9,10,11,24];
+  source.columns.forEach((column,index)=>column.column=sourceColumns[index]);
+  source.rowSelection={requiredColumn:2,excludeExact:[],excludeRows:[]};
+  const row=Array(24).fill('');
+  const selected=[7,'Órgano sintético','Local',new Date('2026-01-02T02:30:00Z'),45000.9,4,1234.56,9,'Ordinario','Ver antecedente',321.09];
+  sourceColumns.forEach((column,index)=>row[column-1]=selected[index]);
+  const display=row.map(value=>String(value));display[0]='0007';display[8]='OF-00009';display[4]='02/01/2026';display[5]='15/03/2023';
+  const url='https://example.invalid/antecedente';
+  const {context}=runtime({book:mockBook(source,[row],{displays:[display],richLinks:{'0:10':url},timeZone:'America/Mexico_City'})});
+  const result=context.readData_(source);
+  assert.deepEqual(Array.from(result.rows[0].values),['0007','Órgano sintético','Local','2026-01-01','2023-03-15',4,1234.56,'OF-00009','Ordinario',url,321.09]);
+  assert.equal(result.rows[0].display[3],'01/01/2026');
+  assert.equal(result.rows[0].display[4],'15/03/2023');
+  assert.equal(result.rows[0].display[9],url);
+  assert.equal(result.timeZone,'America/Mexico_City');
+  assert.equal(result.warnings.length,0);
+});
+
+test('enlace textual y texto de procedencia inerte conservan la representación original',()=>{
+  const source=configuredSource();
+  const row=['ID','Órgano','Local',null,null,1,100,'OF','Ingreso','https://example.invalid/origen',50];
+  const displays=[row.map(value=>value===null?'':String(value))];
+  const {context}=runtime({book:mockBook(source,[row],{displays})});
+  assert.equal(context.readData_(source).rows[0].values[9],'https://example.invalid/origen');
+  row[9]='Pendiente';displays[0][9]='Sin vínculo';
+  const result=context.readData_(source);
+  assert.equal(result.rows[0].values[9],'Sin vínculo');
+  assert.equal(result.rows[0].display[9],'Sin vínculo');
 });
