@@ -12,13 +12,20 @@ export function validateData(data, year) {
     if (!row || !Array.isArray(row.values) || row.values.length !== 11 || !Array.isArray(row.display) || row.display.length !== 11) throw new Error('La fuente contiene una fila incompleta.');
     row.values.forEach((value, i) => {
       if (!(value === null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))) throw new Error('La fuente contiene valores inválidos.');
-      if (['currency', 'number'].includes(data.columns[i].type) && value !== null && value !== '' && typeof value !== 'number') throw new Error('La fuente contiene importes o folios sin validar.');
-      if (data.columns[i].type === 'date' && value !== null && value !== '' && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(value) || !Number.isFinite(Date.parse(value)))) throw new Error('La fuente contiene fechas sin validar.');
+      // Preserve the original service's visible text, including values that are
+      // not numeric or not interpretable dates. Only finite numbers enter sums.
       if (typeof row.display[i] !== 'string') throw new Error('El formato de una fila no es válido.');
     });
   }
-  if (!Number.isFinite(Date.parse(data.loadedAt)) || (data.sourceUpdatedAt != null && !Number.isFinite(Date.parse(data.sourceUpdatedAt)))) throw new Error('La fecha de actualización no es válida.');
+  const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Boolean(isoDateKey(value));
+  if (!timestamp(data.loadedAt) || (data.sourceUpdatedAt != null && !timestamp(data.sourceUpdatedAt))) throw new Error('La fecha de actualización no es válida.');
   return data;
+}
+export function isoDateKey(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) || !Number.isFinite(Date.parse(value))) return '';
+  const date = value.slice(0, 10);
+  // Date.parse normalizes impossible days such as February 30; reject those.
+  return new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) === date ? date : '';
 }
 export function filterRows(data, filters) {
   const query = normalize(filters.query), status = normalize(filters.status);
@@ -32,8 +39,8 @@ export function filterRows(data, filters) {
     if (filters.max !== '' && filters.max != null && (typeof amount !== 'number' || amount > Number(filters.max))) return false;
     if (filters.from || filters.to) {
       // The first date column is the explicitly displayed date field for this filter.
-      const date = dates.length ? String(row.values[dates[0]] ?? '').slice(0, 10) : '';
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (filters.from && date < filters.from) || (filters.to && date > filters.to)) return false;
+      const date = dates.length ? isoDateKey(row.values[dates[0]]) : '';
+      if (!date || (filters.from && date < filters.from) || (filters.to && date > filters.to)) return false;
     }
     return true;
   });
@@ -45,7 +52,7 @@ export function sortRows(rows, columns, index = null, direction = 1) {
     const x = a.values[index], y = b.values[index];
     const emptyX = x === null || x === '', emptyY = y === null || y === '';
     if (emptyX || emptyY) return emptyX ? (emptyY ? 0 : 1) : -1;
-    return (numeric ? x - y : String(x).localeCompare(String(y), 'es', {numeric: true, sensitivity: 'base'})) * direction;
+    return (numeric && typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'es', {numeric: true, sensitivity: 'base'})) * direction;
   });
 }
 export function sumColumn(rows, index) {
@@ -61,7 +68,7 @@ export function readFilters(hash) {
   const params = new URLSearchParams(String(hash).replace(/^#/, '')), result = {};
   allowed.forEach(key => { if (params.has(key)) result[key] = params.get(key).slice(0, 300); });
   for (const key of ['min', 'max']) if (result[key] && !Number.isFinite(Number(result[key]))) delete result[key];
-  for (const key of ['from', 'to']) if (result[key] && !/^\d{4}-\d{2}-\d{2}$/.test(result[key])) delete result[key];
+  for (const key of ['from', 'to']) if (result[key] && (result[key].length !== 10 || !isoDateKey(result[key]))) delete result[key];
   if (!/^\d{4}$/.test(result.year)) delete result.year;
   if (result.compare && !/^\d{4}$/.test(result.compare)) delete result.compare;
   if (!['contains', 'exact'].includes(result.match)) result.match = 'contains';

@@ -9,9 +9,9 @@ Verificación de sólo lectura realizada el 26 de noviembre de 2026 mediante las
 
 Los enlaces **no están en orden 2026/2025**. No se intercambian ni se cambia la hoja original de 2026.
 
-## Mapeos candidatos, no conciliados
+## Mapeos por ejercicio
 
-El frontend original obtiene los títulos y tipos desde `obtenerDatos`; por tanto, estos mapeos se basan en la inspección de encabezados y requieren validación contra ese servicio.
+El `Code.gs` original de consulta recibido después del primer PR confirma el mapeo completo de 2026 y sus tipos. Para 2025 se conserva un adaptador independiente basado en los encabezados de la fuente; no se afirma equivalencia con un servicio histórico que no fue suministrado.
 
 | Posición de consulta (base 0) | Campo | 2025: Analítico Desglose | 2026: Concentrado |
 | --- | --- | --- | --- |
@@ -24,19 +24,23 @@ El frontend original obtiene los títulos y tipos desde `obtenerDatos`; por tant
 | 6 | Costo total | G | H |
 | 7 | Oficio | H | I |
 | 8 | Tipo de ingreso / etiqueta | No identificado | J |
-| 9 | Procedencia | I (revisar también vínculo en K) | K |
+| 9 | Procedencia | I, vacía en la revisión | K |
 | 10 | Costo del dictamen | No identificado | X |
 
 En 2025, L tiene importes sin encabezado; **no se asigna como costo del dictamen**. La pestaña Concentrado del mismo libro tiene otra estructura, con encabezados en fila 2, y no se utiliza como sustituto automático. Las cabeceras de folios y costo en Analítico Desglose incluyen totales en el propio texto; deben copiarse exactamente en la configuración privada y revisar cambios de encabezado al actualizar el libro.
 
-Se necesitan las reglas para distinguir registros de subtotales/totales, rango efectivo de filas, tratamiento de vacíos, procedencias y posibles fórmulas o enlaces enriquecidos. Un muestreo de encabezados confirma el ejercicio y la estructura, **no certifica las sumas completas**.
+El original de 2026 lee desde la fila 2 hasta la última fila usada e incluye toda fila cuya columna B mostrada no esté vacía. No excluye totales ni etiquetas adicionales. Su configuración equivalente tiene `requiredColumn: 2`, `excludeExact: []` y `excludeRows: []`, sin `lastRow` fijo. Los textos de identificación conservan lo mostrado, las fechas usan la zona de la hoja y se admiten seriales; las procedencias conservan enlaces enriquecidos.
+
+Se realizó lectura completa acotada de las dos pestañas y comprobación de filas, tipos y sumas según esas reglas. El resumen de conciliación se mantiene fuera del repositorio. Todavía falta comparar contra la respuesta de un nuevo despliegue real. En 2025 se propone seleccionar B mostrada y dejar ingreso/dictamen como `null`; la procedencia I vacía no se sustituye por una columna diferente. Debe confirmarse esta adaptación antes de habilitar ese ejercicio.
+
+Se conserva la precisión nativa de los importes y se redondea al presentar el total. Redondear cada fila antes de sumar puede cambiar el resultado de la fuente histórica.
 
 ## Archivos originales
 
 - `Index.html`: inspeccionado; interfaz de consulta de 11 columnas y llamadas a `obtenerDatos()` y `Exportadores`.
 - `Code.GS.txt` y primer texto pegado posterior: generador de Google Slides, ajeno al servicio de consulta. Se conserva fuera del repositorio público, con sus identificadores privados.
 - `Exportadores`: recuperado del segundo texto pegado; adaptado a módulos y ejercicio dinámico, con PDF-lib local y licencia MIT.
-- **Pendiente:** `Code.gs` de consulta que contiene `doGet()`, `obtenerDatos()`, `incluir_()` y sus ayudantes o archivos dependientes.
+- `Code.gs` de consulta: recibido; contiene `doGet()`, `obtenerDatos()`, `incluir_()`, `serializarCelda_()` y `verificarConexion()`. Su identificador privado no se copia al repositorio.
 
 ## Configuración inicial
 

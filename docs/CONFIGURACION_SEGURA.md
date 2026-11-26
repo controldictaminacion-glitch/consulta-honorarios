@@ -4,7 +4,7 @@
 
 GitHub Pages sirve exclusivamente HTML, CSS, JavaScript y la biblioteca PDF local. Los datos se consultan en tiempo de ejecución a Google Apps Script. Los IDs de hojas, lista de administradores y reglas privadas permanecen en **Propiedades del script**, nunca en archivos públicos, artefactos o argumentos de GitHub Actions.
 
-Publicar una interfaz estática no convierte un servicio de datos en privado. El backend incluido mantiene `PUBLIC_READ_ENABLED` cerrado por defecto. Habilitarlo significa permitir consulta de los campos seleccionados desde Internet. Esta propuesta no cambia ese ajuste ni las políticas de compartición de los libros. Debe acordarse el acceso de consulta antes de una publicación futura.
+El usuario confirmó consulta pública para cualquier persona con el enlace. El backend conserva `PUBLIC_READ_ENABLED` cerrado por defecto hasta finalizar su configuración y las pruebas. Habilitarlo permitirá consultar por Internet los campos seleccionados, sin inicio de sesión. Esto no requiere hacer públicas las hojas completas. Las políticas de compartición de los libros permanecen intactas.
 
 ## Administración
 
@@ -23,7 +23,7 @@ Google explica las diferencias entre ejecución como propietario y como usuario 
 
 Configurar las propiedades descritas en `backend/README.md`. La administración permite editar URL por año, agregar futuros ejercicios y conservar 2025/2026. Los cambios validan fuente y esquema y usan bloqueo más revisión para evitar que dos administradores se sobrescriban. No hay cambios si falta la bitácora privada. Ésta registra actor, fecha, revisión y huellas; no vuelve público su contenido.
 
-La validación técnica no reemplaza la conciliación contable. No declarar `rulesConfirmed` ni una nota de conciliación hasta recuperar y cotejar las reglas originales. Los tipos monetarios deben ser números nativos de Sheets; los textos con signos monetarios no se convierten silenciosamente.
+La validación técnica no reemplaza la conciliación contable. El servicio original de 2026 ya fue recuperado y cotejado. Su serializador conserva números nativos o textos mostrados, sin convertir estos últimos; el frontend los señala como sumas parciales y evita comparaciones engañosas. Los campos ausentes de 2025 siguen siendo `null`. No declarar reglas históricas equivalentes sin evidencia.
 
 ## Comunicación entre dominios
 
@@ -35,6 +35,6 @@ Los enlaces compartidos guardan filtros en el fragmento de URL; quien reciba el 
 
 ## GitHub y producción
 
-Configurar autoría de Git con dirección `noreply` antes de subir commits. Revisar también metadatos de commits: `.gitignore` no los protege. `npm run check` revisa patrones de correos personales, URLs de hojas, despliegues reales y credenciales en archivos; complementa la revisión humana, no la sustituye.
+Configurar autoría de Git con dirección `noreply` antes de subir commits. Revisar también metadatos de commits: `.gitignore` no los protege. `npm run check` revisa patrones de correos personales, URLs de hojas y credenciales. Los dos endpoints públicos de Apps Script sólo se permiten en `config.json`, con estructura validada; sus direcciones no son secretos. La comprobación complementa la revisión humana, no la sustituye.
 
-El workflow actual tiene sólo lectura de contenido, no recibe secretos y no despliega. El paquete contiene una lista explícita de archivos públicos, excluyendo backend y documentación privada. No activar Pages ni añadir `deploy-pages` durante esta revisión. La futura publicación debe usar una revisión validada y un entorno protegido, siguiendo la [documentación de GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+El workflow de revisión tiene sólo lectura de contenido y no recibe secretos. `pages.yml` está preparado con ejecución exclusivamente manual desde `main`; no se ha ejecutado ni se ha activado Pages. El paquete contiene una lista explícita de archivos públicos, excluyendo backend y configuración privada. Antes de ejecutarlo se deben configurar las direcciones, comprobar permisos y conexión y obtener autorización de publicación. El entorno `github-pages` debe configurarse en GitHub con las restricciones de rama y revisión que correspondan; declarar su nombre en YAML no configura esas protecciones. Véase la [documentación de GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).

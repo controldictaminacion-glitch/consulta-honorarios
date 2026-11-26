@@ -4,9 +4,9 @@ Migración propuesta a GitHub Pages, con consulta por ejercicio y administració
 
 ## Estado de la migración
 
-La interfaz original `Index.html` fue inspeccionada y se conservan búsqueda por órgano (exacta o parcial, sin distinguir acentos), ordenamiento, paginación, vínculos de procedencia, indicadores y exportación de resultados actuales o tabla completa. El archivo `Code.GS.txt` compartido genera presentaciones: no contiene `doGet` ni `obtenerDatos` del servicio de consulta. El `Exportadores` recuperado se adapta con su XLSX nativo y PDF-lib local, corrigiendo el ejercicio fijo del pie de página.
+La interfaz original `Index.html`, `Exportadores` y el `Code.gs` de consulta fueron recuperados. Se conservan búsqueda por órgano (exacta o parcial, sin distinguir acentos), ordenamiento, paginación, vínculos de procedencia, indicadores y exportación de resultados actuales o tabla completa. El primer `Code.GS.txt` genera presentaciones y no se incorpora. El exportador mantiene XLSX nativo y PDF-lib local, con ejercicio dinámico.
 
-**Falta el servicio original `obtenerDatos` para certificar equivalencia de selección de filas, exclusiones, cifras y enlaces.** No se simulan datos institucionales ni se habilitan fuentes reales sin esa conciliación.
+**Consulta pública confirmada por el usuario:** cualquier persona con el enlace podrá consultar; la administración mantiene sus permisos privados. Se integró el comportamiento original de `obtenerDatos` para 2026: selección por órgano mostrado, fechas seriales y zona de la hoja, ceros iniciales y enlaces. Las cifras almacenadas como texto se conservan, se señalan y no se convierten ni se suman silenciosamente. Falta comprobar la respuesta del servicio real una vez configurado.
 
 | Mejora autorizada | Implementación en esta propuesta |
 | --- | --- |
@@ -20,7 +20,7 @@ La interfaz original `Index.html` fue inspeccionada y se conservan búsqueda por
 | Optimización | Búsqueda diferida, render por página y caché temporal en memoria/servidor |
 | Diseño adaptable | Controles móviles y tabla con desplazamiento horizontal |
 | Última actualización | Fecha de modificación de fuente separada de fecha de consulta |
-| GitHub Actions | Pruebas, revisión de configuración privada y paquete de revisión; sin despliegue |
+| GitHub Actions | Pruebas y paquete de revisión; publicación manual preparada, sin ejecutar |
 | Validación de fuentes | Ejercicio, URL, pestaña, encabezados, tipos y reglas declaradas |
 | Enlaces con filtros | Estado de consulta en fragmento de URL |
 
@@ -43,8 +43,8 @@ Abre `http://127.0.0.1:4173/?demo=1` para revisar datos **sintéticos** identifi
 
 `config.json` contiene exclusivamente `apiUrl` y `adminUrl`, ambos vacíos al inicio. La segunda URL apunta al acceso privado con `?action=admin`. Son direcciones de servicios accesibles al navegador; no son secretos. No poner aquí URLs/IDs de hojas, correos, tokens ni claves. No usar GitHub Secrets para inyectar esos datos en JavaScript: el navegador los expondría.
 
-Consulta [configuración segura](docs/CONFIGURACION_SEGURA.md), [verificación anual y pendientes](docs/FUENTES_Y_PENDIENTES.md) y [revisión antes de producción](docs/VALIDACION.md). Los detalles exactos del servidor se encuentran en [backend](backend/README.md).
+Consulta [pasos para publicar](docs/DESPLIEGUE.md), [configuración segura](docs/CONFIGURACION_SEGURA.md), [verificación anual y pendientes](docs/FUENTES_Y_PENDIENTES.md) y [revisión antes de producción](docs/VALIDACION.md). Los detalles exactos del servidor se encuentran en [backend](backend/README.md).
 
 ## Producción
 
-Este cambio no configura GitHub Pages, no publica Apps Script, no modifica las hojas y no integra automáticamente el PR. El workflow únicamente valida y guarda un artefacto de revisión. Una publicación futura requiere autorización y la conciliación descrita en la documentación.
+Este cambio no activa GitHub Pages, no publica Apps Script ni modifica las hojas. El workflow de revisión valida y guarda un artefacto. `pages.yml` sólo puede publicarse por ejecución manual desde `main`, después de configurar las dos direcciones de Apps Script. Su comprobación previa rechaza configuración vacía, parámetros privados o despliegue administrativo compartido. No hay publicación automática al integrar un PR.

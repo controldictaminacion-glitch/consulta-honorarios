@@ -25,6 +25,20 @@ test('la API debe devolver ejercicio y campos correctos antes de guardar datos',
   try { await assert.rejects(getData({apiUrl: 'https://example.org/test-contract'}, 2026), /contrato/); }
   finally { globalThis.fetch = original; }
 });
+test('el transporte conserva el texto visible original en importes y fechas', async () => {
+  const original = globalThis.fetch;
+  const data = demoData(2026);
+  data.rows[0].values[5] = '0007'; data.rows[0].display[5] = '0007';
+  data.rows[0].values[6] = 'SIN IMPORTE'; data.rows[0].display[6] = 'SIN IMPORTE';
+  data.rows[0].values[3] = 'PENDIENTE'; data.rows[0].display[3] = 'PENDIENTE';
+  globalThis.fetch = async () => ({ok: true, json: async () => data});
+  try {
+    const result = await getData({apiUrl: 'https://example.org/test-visible-text'}, 2026);
+    assert.equal(result.rows[0].values[5], '0007');
+    assert.equal(result.rows[0].values[6], 'SIN IMPORTE');
+    assert.equal(result.rows[0].display[3], 'PENDIENTE');
+  } finally { globalThis.fetch = original; }
+});
 test('los errores del servidor se presentan sin revelar mensajes internos', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () => ({ok: true, json: async () => ({error: {code: 'CONFIG', message: 'private-server-detail'}})});
