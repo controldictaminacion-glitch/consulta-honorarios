@@ -7,8 +7,10 @@ const backend = readFileSync(new URL('../backend/Code.gs', import.meta.url), 'ut
 
 function runtime({ active = '', effective = '', properties = {}, book, cache } = {}) {
   const state = { ...properties };
+  const logs = [];
   const context = vm.createContext({
     Date, Set, Map, JSON, Number, String, Boolean, RegExp, Error,
+    console: {log: value => logs.push(String(value))},
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => state[key] || null, setProperty: (key,value) => { state[key]=value; } }) },
     Session: { getActiveUser: () => ({getEmail: () => active}), getEffectiveUser: () => ({getEmail: () => effective}) },
     ContentService: { MimeType: {JSON:'json'}, createTextOutput: text => ({text,setMimeType(){return this;}}) },
@@ -22,7 +24,7 @@ function runtime({ active = '', effective = '', properties = {}, book, cache } =
     } }
   });
   vm.runInContext(backend, context);
-  return {context,state};
+  return {context,state,logs};
 }
 
 function configuredSource() {
@@ -43,6 +45,7 @@ test('administración falla cerrada sin identidad, con identidad distinta o fuer
     assert.throws(()=>context.adminGetAudit(),/FORBIDDEN/);
     assert.throws(()=>context.adminValidateSource({}),/FORBIDDEN/);
     assert.throws(()=>context.adminSaveConfig({},0),/FORBIDDEN/);
+    assert.throws(()=>context.verificarConexion(),/FORBIDDEN/);
   }
 });
 
@@ -245,4 +248,29 @@ test('enlace textual y texto de procedencia inerte conservan la representación 
   const result=context.readData_(source);
   assert.equal(result.rows[0].values[9],'Sin vínculo');
   assert.equal(result.rows[0].display[9],'Sin vínculo');
+});
+
+test('verificarConexion lee fuente confirmada deshabilitada sin escribir, usar caché o exponer identificadores',()=>{
+  const source=configuredSource();source.enabled=false;source.validated=false;
+  const rows=[
+    ['ID-privado','Órgano sintético','Local',null,null,3,100,'OF-privado','Ingreso',null,50],
+    ['ID-otro','Otro órgano','Local',null,null,'4',25,'OF-otro','Ingreso',null,'16']
+  ];
+  const book=mockBook(source,rows,{timeZone:'America/Mexico_City'});
+  book.getSheetByName=()=>({
+    getLastRow:()=>1,
+    getRange:()=>({getDisplayValues:()=>[['Fecha','Cuenta','Operacion','Revision','Estado','HashAnterior','HashNuevo']],setValue:()=>assert.fail('No debe escribir la bitácora')}),
+    appendRow:()=>assert.fail('No debe agregar a la bitácora')
+  });
+  const config={revision:0,defaultYear:2026,years:[{year:2025,enabled:false,validated:false,rulesConfirmed:false},source]};
+  const properties={PUBLIC_READ_ENABLED:'false',ADMIN_EMAILS_JSON:'["member@synthetic.invalid"]',AUDIT_SPREADSHEET_ID:'AUDIT_TEST_ONLY',HONORARIOS_CONFIG_JSON:JSON.stringify(config)};
+  const {context,state,logs}=runtime({active:'member@synthetic.invalid',effective:'member@synthetic.invalid',properties,book,
+    cache:{get:()=>assert.fail('No debe consultar caché'),put:()=>assert.fail('No debe guardar caché')}});
+  const before=JSON.stringify(state);
+  const summary=JSON.parse(JSON.stringify(context.verificarConexion()));
+  assert.deepEqual(summary,[{year:2026,records:2,columns:11,timeZone:'America/Mexico_City',folios:3,cost:125,dictamen:50,missing:[]}]);
+  assert.equal(JSON.stringify(state),before);
+  assert.equal(logs.length,1);
+  assert.deepEqual(JSON.parse(logs[0]),summary);
+  for(const privateValue of ['SOURCE_TEST_ONLY','AUDIT_TEST_ONLY','member@synthetic.invalid','ID-privado','OF-privado','Órgano sintético']) assert.equal(logs[0].includes(privateValue),false);
 });

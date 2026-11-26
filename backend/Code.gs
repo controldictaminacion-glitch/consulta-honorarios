@@ -271,3 +271,20 @@ function auditSheet_() {
   if (expected.some((value, index) => normalize_(value) !== normalize_(headers[index]))) fail_('AUDIT_REQUIRED');
   return sheet;
 }
+
+/** Prueba privada desde el editor: lee fuentes confirmadas, sin publicar ni guardar. */
+function verificarConexion() {
+  requireAdmin_();
+  auditSheet_();
+  const summary = config_().years.filter(source => source.rulesConfirmed === true).map(source => {
+    const data = readData_(normalizeSource_(source));
+    const totals = [5, 6, 10].map(index => {
+      const numbers = data.rows.map(row => row.values[index]).filter(value => typeof value === 'number' && Number.isFinite(value));
+      return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) : data.rows.length ? null : 0;
+    });
+    return { year: data.year, records: data.rows.length, columns: data.columns.length, timeZone: data.timeZone,
+      folios: totals[0], cost: totals[1], dictamen: totals[2], missing: data.unavailableColumns };
+  });
+  console.log(JSON.stringify(summary));
+  return summary;
+}

@@ -69,6 +69,8 @@ La validación privada lee también las filas y aplica la serialización origina
 
 Los campos expresamente ausentes conservan `null`, sin inferir valores de otras columnas. Los resultados admiten hasta 20 mil filas y 500 mil celdas de origen por consulta para limitar consumo de memoria. Las pruebas sintéticas de paridad no sustituyen cotejar registros, folios, importes y descargas con la consulta original de 2026.
 
+Para comprobar la conexión desde el editor sin publicar, ejecutar `verificarConexion()` con una cuenta administradora autorizada. Comprueba la bitácora y lee únicamente los ejercicios con `rulesConfirmed: true`, aunque estén deshabilitados para consulta. Devuelve y registra un resumen de registros, número de columnas, zona, sumas de números nativos y columnas ausentes. No muestra IDs, correos o filas completas; tampoco modifica propiedades, fuentes, bitácora ni caché, y no activa `PUBLIC_READ_ENABLED` ni los ejercicios. Mantener deshabilitado un ejercicio durante esta comprobación permite conciliar sus cifras antes de habilitarlo.
+
 ## Bitácora y límites
 
 La bitácora privada registra cuenta, fecha, revisión, identificador de operación y huellas SHA-256 de la configuración anterior/nueva. No almacena la URL ni el ID de la fuente dentro del registro. Se escribe `CONFIG_REQUESTED` antes de modificar la configuración y luego `CONFIG_APPLIED`. Si falla esa última marca, comparar revisión/huella con la configuración vigente. No existe una transacción distribuida entre PropertiesService y Sheets; un registro pendiente requiere conciliación, no debe suponerse un cambio aplicado.
