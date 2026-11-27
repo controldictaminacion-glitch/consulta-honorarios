@@ -15,7 +15,26 @@ async function scan(dir) {
     if (['.git', 'node_modules', 'dist'].includes(entry.name)) continue;
     const file = resolve(dir, entry.name);
     if (entry.isDirectory()) { await scan(file); continue; }
-    const content = await readFile(file, 'utf8');
+    let content = await readFile(file, 'utf8');
+    // The two web app URLs are public browser configuration, not credentials.
+    // Accept them only in the root config.json, with no extra parameters.
+    if (file === resolve(process.cwd(), 'config.json')) {
+      try {
+        const config = JSON.parse(content);
+        if (!config || Array.isArray(config) || Object.keys(config).sort().join(',') !== 'adminUrl,apiUrl') throw new Error('Claves no autorizadas');
+        const base = 'https://script.google.com/macros/s/';
+        const suffix = '?action=admin';
+        const endpoint = value => typeof value === 'string' && value.startsWith(base) && value.endsWith('/exec') && /^[A-Za-z0-9_-]{30,}$/.test(value.slice(base.length, -5));
+        if (!(config.apiUrl === '' || endpoint(config.apiUrl))) throw new Error('apiUrl inválida');
+        if (!(config.adminUrl === '' || (typeof config.adminUrl === 'string' && config.adminUrl.endsWith(suffix) && endpoint(config.adminUrl.slice(0, -suffix.length))))) throw new Error('adminUrl inválida');
+        for (const value of [config.apiUrl, config.adminUrl]) {
+          if (value) content = content.replace(JSON.stringify(value), '""');
+        }
+      } catch (error) {
+        console.error('Configuración pública inválida:', error.message);
+        failed = true;
+      }
+    }
     for (const rule of forbidden) {
       rule.lastIndex = 0;
       if (rule.test(content)) { console.error('Posible configuración privada en', file); failed = true; }
